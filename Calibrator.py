@@ -40,16 +40,7 @@ print("========================+++++===========\n")
 
 # Default parameters
 
-NumberOfComptonEvents = 2000
-#MinimumEnergy = 510.99
-#MaximumEnergy = 511.00
-
-# Depends on GPU memory and layout 
-#MaxBatchSize = 256
-
-NumberOfTrainingBatches = 1024
-NumberOfTestingBatches = 8
-
+NumberOfComptonEvents = 10000
 
 
 OutputDirectory = "Output"
@@ -77,7 +68,7 @@ if Mode != 'toymodel' and Mode != 'simulation':
 
 
 if Mode == 'toymodel':
-  print("CMD-Line: Using toy model".format(NumberOfComptonEvents))
+  print("CMD-Line: Using toy model")
 
   ToyModelOptions = args.toymodeloptions.split(":")
   if len(ToyModelOptions) != 3:
@@ -137,11 +128,8 @@ print("\n\n")
 # Determine derived parameters
 
 
-NumberOfTrainingLocations = NumberOfTrainingBatches*MaxBatchSize
-TrainingBatchSize = MaxBatchSize
-
-NumberOfTestLocations = NumberOfTestingBatches*MaxBatchSize
-TestingBatchSize = MaxBatchSize
+NumberOfTrainingEvents = int(0.8*NumberOfComptonEvents)
+NumberOfTestingEvents = NumberOfComptonEvents - NumberOfTrainingEvents
 
 
 '''
@@ -197,30 +185,26 @@ def generateOneDataSet(_):
   DataSet.create()
   return DataSet
   
-  
-# Parallelizing using Pool.starmap()
-import multiprocessing as mp
-pool = mp.Pool(mp.cpu_count())
 
 # Create data sets
 TimerCreation = time.time()
 
 TrainingDataSets = []
-for i in range(NumberOfTrainingLocations):
+for i in range(NumberOfTrainingEvents):
     result = generateOneDataSet(i)
     TrainingDataSets.append(generateOneDataSet(i))
-print("Info: Created {:,} training data sets. ".format(NumberOfTrainingLocations))
+print("Info: Created {:,} training data sets. ".format(NumberOfTrainingEvents))
 
 TestingDataSets = []
-for i in range(NumberOfTestingLocations):
+for i in range(NumberOfTestingEvents):
     result = generateOneDataSet(i)
     TestingDataSets.append(generateOneDataSet(i))
-print("Info: Created {:,} testing data sets. ".format(NumberOfTestLocations))
+print("Info: Created {:,} testing data sets. ".format(NumberOfTestingEvents))
 
 
 
 TimeCreation = time.time() - TimerCreation
-print("Info: Total time to create data sets: {:.1f} seconds (= {:,.0f} events/second)".format(TimeCreation, (NumberOfTrainingLocations + NumberOfTestLocations) * (NumberOfComptonEvents + NumberOfBackgroundEvents) / TimeCreation))
+print("Info: Total time to create data sets: {:.1f} seconds (= {:,.0f} events/second)".format(TimeCreation, (NumberOfTrainingEvents + NumberOfTestingEvents) / TimeCreation))
 
 
 
