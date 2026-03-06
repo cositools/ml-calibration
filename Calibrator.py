@@ -211,10 +211,173 @@ print("Info: Total time to create data sets: {:.1f} seconds (= {:,.0f} events/se
 ###################################################################################################
 # Step 4: Setting up the neural network
 ###################################################################################################
+def dataset_to_tensors(datasets):
+
+    X = []
+    y = []
+
+    for data in datasets:
+
+        sh1 = data.StripHits[0]
+        sh2 = data.StripHits[1]
+
+        features = [
+            sh1.DetectorID,
+            sh1.StripID,
+            sh1.IsHV,
+            sh1.ADC,
+            sh1.TAC,
+            sh2.DetectorID,
+            sh2.StripID,
+            sh2.IsHV,
+            sh2.ADC,
+            sh2.TAC
+        ]
+
+        hit = data.Hits[0]
+
+        target = [
+            hit.X,
+            hit.Y,
+            hit.Z,
+            hit.Energy
+        ]
+
+        X.append(features)
+        y.append(target)
+
+    X = torch.tensor(X, dtype=torch.float32)
+    y = torch.tensor(y, dtype=torch.float32)
+
+    return X, y
+
 
 # Neural neutral
 
+import matplotlib.pyplot as plt
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
-#input("Press [enter] to EXIT")
-sys.exit(0)
+# -------------------------------
+# Convert datasets to tensors
+# -------------------------------
+train_X, train_y = dataset_to_tensors(TrainingDataSets)
+test_X, test_y   = dataset_to_tensors(TestingDataSets)
 
+# -------------------------------
+# Feature engineering 
+# -------------------------------
+train_X = torch.cat([train_X, train_X**2], dim=1)
+test_X  = torch.cat([test_X, test_X**2], dim=1)
+
+# -------------------------------
+# Standardize inputs
+# -------------------------------
+X_mean = train_X.mean(dim=0)
+X_std  = train_X.std(dim=0) + 1e-8
+
+train_X_norm = (train_X - X_mean) / X_std
+test_X_norm  = (test_X  - X_mean) / X_std
+
+# -------------------------------
+# Standardize outputs
+# -------------------------------
+y_mean = train_y.mean(dim=0)
+y_std  = train_y.std(dim=0) + 1e-8
+
+train_y_norm = (train_y - y_mean) / y_std
+test_y_norm  = (test_y  - y_mean) / y_std
+
+# -------------------------------
+# Linear Model
+# -------------------------------
+class LinearNN(nn.Module):
+    def __init__(self, input_size):
+        super().__init__()
+        self.linear = nn.Linear(input_size, 4)
+
+    def forward(self, x):
+        return self.linear(x)
+
+input_size = train_X.shape[1]
+model = LinearNN(input_size)
+
+# -------------------------------
+# Optimizer
+# -------------------------------
+optimizer = optim.SGD(model.parameters(), lr=0.01)
+
+# -------------------------------
+# Weighted loss
+# -------------------------------
+weights = torch.tensor([1.0, 1.0, 1.0, 8.0])
+
+def weighted_mse(pred, target):
+    return ((pred - target)**2 * weights).mean()
+
+# -------------------------------
+# Training
+# -------------------------------
+epochs = 1200
+
+train_loss_history = []
+test_loss_history = []
+
+for epoch in range(epochs):
+
+    model.train()
+    optimizer.zero_grad()
+
+    output = model(train_X_norm)
+    loss = weighted_mse(output, train_y_norm)
+
+    loss.backward()
+    optimizer.step()
+
+    train_loss_history.append(loss.item())
+
+    model.eval()
+    with torch.no_grad():
+        test_output = model(test_X_norm)
+        test_loss = weighted_mse(test_output, test_y_norm)
+
+    test_loss_history.append(test_loss.item())
+
+    if (epoch+1) % 200 == 0:
+        print(f"Epoch {epoch+1}: Train Loss = {loss.item():.6f}, Test Loss = {test_loss.item():.6f}")
+
+# -------------------------------
+# Evaluate
+# -------------------------------
+model.eval()
+with torch.no_grad():
+    pred_norm = model(test_X_norm)
+    pred = pred_norm * y_std + y_mean
+
+output_columns = ['X','Y','Z','Energy']
+
+rmse = torch.sqrt(((pred - test_y)**2).mean(dim=0))
+
+print("\nRMSE per output component:")
+for i,name in enumerate(output_columns):
+    print(f"{name} = {rmse[i]:.3f}")
+
+overall_loss = ((pred - test_y)**2).mean()
+print(f"\nFinal Test Loss: {overall_loss:.6f}")
+
+# -------------------------------
+# Plot loss
+# -------------------------------
+plt.figure(figsize=(8,5))
+plt.plot(train_loss_history,label="Training Loss")
+plt.plot(test_loss_history,label="Test Loss")
+
+plt.xlabel("Epoch")
+plt.ylabel("Weighted MSE Loss")
+plt.title("Training vs Test Loss")
+
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
