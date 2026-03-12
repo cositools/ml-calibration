@@ -254,7 +254,6 @@ def dataset_to_tensors(datasets):
 
 # Neural neutral
 
-import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -266,118 +265,90 @@ train_X, train_y = dataset_to_tensors(TrainingDataSets)
 test_X, test_y   = dataset_to_tensors(TestingDataSets)
 
 # -------------------------------
-# Feature engineering 
+# Normalize inputs
 # -------------------------------
-train_X = torch.cat([train_X, train_X**2], dim=1)
-test_X  = torch.cat([test_X, test_X**2], dim=1)
+X_mean = train_X.mean(0)
+X_std  = train_X.std(0) + 1e-8
+
+train_X = (train_X - X_mean) / X_std
+test_X  = (test_X  - X_mean) / X_std
+
 
 # -------------------------------
-# Standardize inputs
+# Normalize outputs (KEY FIX)
 # -------------------------------
-X_mean = train_X.mean(dim=0)
-X_std  = train_X.std(dim=0) + 1e-8
-
-train_X_norm = (train_X - X_mean) / X_std
-test_X_norm  = (test_X  - X_mean) / X_std
-
-# -------------------------------
-# Standardize outputs
-# -------------------------------
-y_mean = train_y.mean(dim=0)
-y_std  = train_y.std(dim=0) + 1e-8
+y_mean = train_y.mean(0)
+y_std  = train_y.std(0) + 1e-8
 
 train_y_norm = (train_y - y_mean) / y_std
 test_y_norm  = (test_y  - y_mean) / y_std
 
+
 # -------------------------------
 # Linear Model
 # -------------------------------
-class LinearNN(nn.Module):
-    def __init__(self, input_size):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 4)
+model = nn.Linear(train_X.shape[1], 4)
 
-    def forward(self, x):
-        return self.linear(x)
-
-input_size = train_X.shape[1]
-model = LinearNN(input_size)
 
 # -------------------------------
-# Optimizer
+# Loss + optimizer
 # -------------------------------
-optimizer = optim.SGD(model.parameters(), lr=0.01)
-
-# -------------------------------
-# Weighted loss
-# -------------------------------
-weights = torch.tensor([1.0, 1.0, 1.0, 8.0])
-
-def weighted_mse(pred, target):
-    return ((pred - target)**2 * weights).mean()
+loss_fn = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.01)
 
 # -------------------------------
 # Training
 # -------------------------------
-epochs = 1200
+for epoch in range(2000):
 
-train_loss_history = []
-test_loss_history = []
+    pred = model(train_X)
+    loss = loss_fn(pred, train_y_norm)
 
-for epoch in range(epochs):
-
-    model.train()
     optimizer.zero_grad()
-
-    output = model(train_X_norm)
-    loss = weighted_mse(output, train_y_norm)
-
     loss.backward()
     optimizer.step()
 
-    train_loss_history.append(loss.item())
-
-    model.eval()
-    with torch.no_grad():
-        test_output = model(test_X_norm)
-        test_loss = weighted_mse(test_output, test_y_norm)
-
-    test_loss_history.append(test_loss.item())
-
-    if (epoch+1) % 200 == 0:
-        print(f"Epoch {epoch+1}: Train Loss = {loss.item():.6f}, Test Loss = {test_loss.item():.6f}")
 
 # -------------------------------
 # Evaluate
 # -------------------------------
-model.eval()
 with torch.no_grad():
-    pred_norm = model(test_X_norm)
+
+    pred_norm = model(test_X)
+
+    # unnormalize predictions
     pred = pred_norm * y_std + y_mean
 
-output_columns = ['X','Y','Z','Energy']
 
-rmse = torch.sqrt(((pred - test_y)**2).mean(dim=0))
+rmse = torch.sqrt(((pred - test_y) ** 2).mean(dim=0))
 
-print("\nRMSE per output component:")
-for i,name in enumerate(output_columns):
-    print(f"{name} = {rmse[i]:.3f}")
+print("RMSE per output:")
+print("X =", rmse[0].item())
+print("Y =", rmse[1].item())
+print("Z =", rmse[2].item())
+print("Energy =", rmse[3].item())
 
-overall_loss = ((pred - test_y)**2).mean()
-print(f"\nFinal Test Loss: {overall_loss:.6f}")
+import matplotlib.pyplot as plt
 
-# -------------------------------
-# Plot loss
-# -------------------------------
-plt.figure(figsize=(8,5))
-plt.plot(train_loss_history,label="Training Loss")
-plt.plot(test_loss_history,label="Test Loss")
+# convert tensors to numpy
+true_vals = test_y.detach().numpy()
+pred_vals = pred.detach().numpy()
 
-plt.xlabel("Epoch")
-plt.ylabel("Weighted MSE Loss")
-plt.title("Training vs Test Loss")
+labels = ["X", "Y", "Z", "Energy"]
 
-plt.legend()
-plt.grid(True)
+plt.figure(figsize=(12,10))
+
+for i in range(4):
+    plt.subplot(2,2,i+1)
+
+    plt.hist(true_vals[:,i], bins=50, alpha=0.6, label="Measured")
+    plt.hist(pred_vals[:,i], bins=50, alpha=0.6, label="Reconstructed")
+
+    plt.xlabel(labels[i])
+    plt.ylabel("Counts")
+    plt.title(f"{labels[i]}")
+
+    plt.legend()
+
 plt.tight_layout()
 plt.show()
