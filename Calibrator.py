@@ -27,6 +27,11 @@ import argparse
 from datetime import datetime
 from functools import reduce
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import matplotlib.pyplot as plt
+
 
 print("\nA machine-learning based COSI calibrator")
 print("========================+++++===========\n")
@@ -254,12 +259,8 @@ def dataset_to_tensors(datasets):
 
 # Neural neutral
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-
 # -------------------------------
-# Convert datasets to tensors
+# Converting datasets to tensors
 # -------------------------------
 train_X, train_y = dataset_to_tensors(TrainingDataSets)
 test_X, test_y   = dataset_to_tensors(TestingDataSets)
@@ -275,7 +276,7 @@ test_X  = (test_X  - X_mean) / X_std
 
 
 # -------------------------------
-# Normalize outputs (KEY FIX)
+# Normalize outputs
 # -------------------------------
 y_mean = train_y.mean(0)
 y_std  = train_y.std(0) + 1e-8
@@ -287,8 +288,13 @@ test_y_norm  = (test_y  - y_mean) / y_std
 # -------------------------------
 # Linear Model
 # -------------------------------
-model = nn.Linear(train_X.shape[1], 4)
-
+model = nn.Sequential(
+    nn.Linear(train_X.shape[1], 64),
+    nn.ReLU(),
+    nn.Linear(64, 64),
+    nn.ReLU(),
+    nn.Linear(64, 4)
+)
 
 # -------------------------------
 # Loss + optimizer
@@ -301,7 +307,7 @@ optimizer = optim.Adam(model.parameters(), lr=0.01)
 # -------------------------------
 for epoch in range(2000):
 
-    pred = model(train_X)
+    pred = model(train_X)  
     loss = loss_fn(pred, train_y_norm)
 
     optimizer.zero_grad()
@@ -314,12 +320,15 @@ for epoch in range(2000):
 # -------------------------------
 with torch.no_grad():
 
-    pred_norm = model(test_X)
+    pred_norm = model(test_X)  
 
     # unnormalize predictions
     pred = pred_norm * y_std + y_mean
 
 
+# -------------------------------
+# Root Mean Squared Error
+# -------------------------------
 rmse = torch.sqrt(((pred - test_y) ** 2).mean(dim=0))
 
 print("RMSE per output:")
@@ -328,27 +337,31 @@ print("Y =", rmse[1].item())
 print("Z =", rmse[2].item())
 print("Energy =", rmse[3].item())
 
-import matplotlib.pyplot as plt
-
-# convert tensors to numpy
+# -------------------------------
+# Plot
+# -------------------------------
 true_vals = test_y.detach().numpy()
 pred_vals = pred.detach().numpy()
 
 labels = ["X", "Y", "Z", "Energy"]
+
+residuals = true_vals - pred_vals
+
+plt.figure(figsize=(12,10))
+# add units 
+units = ["cm", "cm", "cm", "keV"]
 
 plt.figure(figsize=(12,10))
 
 for i in range(4):
     plt.subplot(2,2,i+1)
 
-    plt.hist(true_vals[:,i], bins=50, alpha=0.6, label="Measured")
-    plt.hist(pred_vals[:,i], bins=50, alpha=0.6, label="Reconstructed")
+    plt.hist(residuals[:,i], bins=50, alpha=0.8)
+    plt.axvline(0, color='red', linestyle='--')
 
-    plt.xlabel(labels[i])
+    plt.xlabel(f"Measured - Reconstructed ({labels[i]} [{units[i]}])")
     plt.ylabel("Counts")
-    plt.title(f"{labels[i]}")
-
-    plt.legend()
+    plt.title(f"Residuals: {labels[i]} ({units[i]})")
 
 plt.tight_layout()
 plt.show()
